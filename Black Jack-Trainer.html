@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blackjack</title>
+    <!-- Load Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font and base styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #16a34a; /* Deep green for the felt table */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        /* Card styling */
+        .card {
+            width: 80px;
+            height: 110px;
+            background-color: #f7f7f7;
+            border: 1px solid #333;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            margin: 0 5px;
+            padding: 5px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            font-weight: bold;
+            font-size: 18px;
+            line-height: 1;
+            transition: transform 0.3s ease;
+        }
+
+        .card-container {
+            display: flex;
+            justify-content: center;
+            flex-wrap: nowrap;
+            min-height: 120px; /* Ensure layout stability */
+        }
+
+        .red-suit {
+            color: #ef4444; /* Red for Hearts and Diamonds */
+        }
+
+        .black-suit {
+            color: #1f2937; /* Dark gray for Clubs and Spades */
+        }
+
+        .card-back {
+            background-color: #a855f7; /* Purple for card back */
+            background-image: linear-gradient(45deg, #a855f7 25%, #8b5cf6 25%, #8b5cf6 50%, #a855f7 50%, #a855f7 75%, #8b5cf6 75%, #8b5cf6 100%);
+            background-size: 20px 20px;
+            border: 3px solid #fef3c7; /* Light border */
+            color: #fef3c7;
+            font-size: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            /* Text to indicate the back */
+            user-select: none;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 640px) {
+            .card {
+                width: 60px;
+                height: 90px;
+                font-size: 16px;
+                margin: 0 3px;
+            }
+            .card-back {
+                font-size: 14px;
+            }
+            .title {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+    <script>
+        // --- Game State Variables ---
+        let deck = [];
+        let dealerHand = [];
+        let playerHand = [];
+        let isGameActive = false;
+
+        // Global constants
+        const suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades'];
+        const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+
+        // --- Utility Functions ---
+
+        /** Generates a standard 52-card deck. */
+        function createDeck() {
+            deck = [];
+            for (const suit of suits) {
+                for (const value of values) {
+                    deck.push({ value, suit, face: getCardFace(suit) });
+                }
+            }
+            shuffleDeck(deck);
+        }
+
+        /** Fisher-Yates shuffle algorithm. */
+        function shuffleDeck(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        /** Returns the visual character for the card suit. */
+        function getCardFace(suit) {
+            switch (suit) {
+                case 'Hearts': return '♥';
+                case 'Diamonds': return '♦';
+                case 'Clubs': return '♣';
+                case 'Spades': return '♠';
+                default: return '';
+            }
+        }
+
+        /** Returns the color class for the suit. */
+        function getSuitClass(suit) {
+            return (suit === 'Hearts' || suit === 'Diamonds') ? 'red-suit' : 'black-suit';
+        }
+
+        /** Draws a card from the deck. */
+        function drawCard() {
+            return deck.pop();
+        }
+
+        /** Calculates the total score of a hand, handling Aces (1 or 11). */
+        function calculateScore(hand) {
+            let score = 0;
+            let aceCount = 0;
+
+            for (const card of hand) {
+                if (card.value === 'A') {
+                    aceCount++;
+                    score += 11;
+                } else if (['K', 'Q', 'J'].includes(card.value)) {
+                    score += 10;
+                } else {
+                    score += parseInt(card.value, 10);
+                }
+            }
+
+            // Adjust Aces from 11 to 1 if the total score is over 21
+            while (score > 21 && aceCount > 0) {
+                score -= 10;
+                aceCount--;
+            }
+
+            return score;
+        }
+
+        /** Renders a single card element. */
+        function createCardElement(card, isHidden = false) {
+            const cardEl = document.createElement('div');
+            cardEl.classList.add('card');
+
+            if (isHidden) {
+                cardEl.classList.add('card-back', 'font-mono');
+                cardEl.innerHTML = 'BLAC<br>KJACK';
+            } else {
+                const suitClass = getSuitClass(card.suit);
+                cardEl.classList.add('flex', 'justify-between', 'items-start', 'text-xl', 'p-2', 'shadow-lg', 'bg-white');
+
+                cardEl.innerHTML = `
+                    <div class="${suitClass}">${card.value}</div>
+                    <div class="text-3xl ${suitClass}">${card.face}</div>
+                    <div class="${suitClass} self-end transform rotate-180">${card.value}</div>
+                `;
+            }
+            return cardEl;
+        }
+
+        /** Updates the entire game UI based on the current state. */
+        function updateUI(finalReveal = false) {
+            const dealerCardsEl = document.getElementById('dealer-cards');
+            const playerCardsEl = document.getElementById('player-cards');
+            const dealerScoreEl = document.getElementById('dealer-score');
+            const playerScoreEl = document.getElementById('player-score');
+            const statusMessageEl = document.getElementById('status-message');
+            const hitBtn = document.getElementById('hit-btn');
+            const standBtn = document.getElementById('stand-btn');
+            const newGameBtn = document.getElementById('new-game-btn');
+
+            // 1. Render Dealer Hand
+            dealerCardsEl.innerHTML = '';
+            dealerHand.forEach((card, index) => {
+                // Dealer's first card is hidden unless game is over or final reveal is true
+                const isHidden = !finalReveal && index === 0 && isGameActive;
+                dealerCardsEl.appendChild(createCardElement(card, isHidden));
+            });
+
+            // 2. Render Player Hand
+            playerCardsEl.innerHTML = '';
+            playerHand.forEach(card => {
+                playerCardsEl.appendChild(createCardElement(card));
+            });
+
+            // 3. Update Scores
+            const dealerScore = calculateScore(dealerHand);
+            const playerScore = calculateScore(playerHand);
+
+            if (!finalReveal && isGameActive && dealerHand.length > 0) {
+                // Show score based on only the visible card (handle face cards as 10)
+                let visibleValue = dealerHand[1].value;
+                if (['K', 'Q', 'J'].includes(visibleValue)) visibleValue = 10;
+                if (visibleValue === 'A') visibleValue = '11/1'; // Indicate potential Ace
+                dealerScoreEl.textContent = `Visible: ${visibleValue}`;
+            } else {
+                dealerScoreEl.textContent = `Score: ${dealerScore}`;
+            }
+            playerScoreEl.textContent = `Score: ${playerScore}`;
+
+            // 4. Update Controls
+            hitBtn.disabled = !isGameActive;
+            standBtn.disabled = !isGameActive;
+            newGameBtn.disabled = isGameActive;
+
+            // 5. Update Status Message
+            if (isGameActive) {
+                statusMessageEl.textContent = 'Hit or Stand?';
+                statusMessageEl.className = 'text-white text-xl font-semibold mt-4';
+            }
+        }
+
+        // --- Game Logic Functions ---
+
+        /** Starts a new game of Blackjack. */
+        function initGame() {
+            isGameActive = true;
+            dealerHand = [];
+            playerHand = [];
+
+            // Reset deck and shuffle
+            createDeck();
+
+            // Deal initial cards
+            playerHand.push(drawCard());
+            dealerHand.push(drawCard()); // Dealer's hole card
+            playerHand.push(drawCard());
+            dealerHand.push(drawCard());
+
+            // Check for immediate Blackjack
+            if (calculateScore(playerHand) === 21) {
+                // Player has Blackjack, end the game immediately
+                isGameActive = false;
+                checkWinner();
+            } else {
+                updateUI();
+            }
+
+            // Clear result message
+            const statusMessageEl = document.getElementById('status-message');
+            statusMessageEl.textContent = 'Game started! Hit or Stand?';
+            statusMessageEl.classList.add('text-white');
+        }
+
+        /** Player hits: adds a card to the player's hand. */
+        function hit() {
+            if (!isGameActive) return;
+
+            playerHand.push(drawCard());
+            updateUI();
+
+            const score = calculateScore(playerHand);
+            if (score > 21) {
+                // Player busts
+                isGameActive = false;
+                checkWinner();
+            } else if (score === 21) {
+                // Player hits 21, automatically stands
+                stand();
+            }
+        }
+
+        /** Player stands: initiates the dealer's turn. */
+        function stand() {
+            if (!isGameActive) return;
+
+            isGameActive = false;
+            // Reveal the dealer's hole card
+            updateUI(true);
+
+            // Give a slight delay before dealer plays
+            setTimeout(dealerPlay, 1000);
+        }
+
+        /** Dealer plays their hand until score is 17 or higher. */
+        function dealerPlay() {
+            const dealerCardsEl = document.getElementById('dealer-cards');
+            const dealerScoreEl = document.getElementById('dealer-score');
+            
+            // Recursive function to handle card drawing with delay
+            const drawWithDelay = () => {
+                let dealerScore = calculateScore(dealerHand);
+                
+                if (dealerScore < 17) {
+                    dealerHand.push(drawCard());
+                    
+                    // Re-render UI after drawing a card
+                    dealerCardsEl.innerHTML = '';
+                    dealerHand.forEach(card => {
+                        dealerCardsEl.appendChild(createCardElement(card));
+                    });
+                    
+                    dealerScore = calculateScore(dealerHand);
+                    dealerScoreEl.textContent = `Score: ${dealerScore}`;
+
+                    // Continue hitting with delay
+                    setTimeout(drawWithDelay, 1000);
+                } else {
+                    // Dealer stands or busts
+                    checkWinner();
+                }
+            };
+            
+            // Start the dealer's turn
+            drawWithDelay();
+        }
+
+        /** Determines the final winner and updates the status message. */
+        function checkWinner() {
+            const dealerScore = calculateScore(dealerHand);
+            const playerScore = calculateScore(playerHand);
+            const statusMessageEl = document.getElementById('status-message');
+            let message = '';
+            let className = 'text-white text-3xl font-bold mt-4 p-2 rounded-lg';
+
+            if (playerScore > 21) {
+                message = `BUST! (${playerScore}). You Lose.`;
+                className += ' bg-red-600';
+            } else if (dealerScore > 21) {
+                message = `Dealer BUSTS! (${dealerScore}). You Win!`;
+                className += ' bg-green-600';
+            } else if (playerScore === 21 && playerHand.length === 2 && dealerScore !== 21) {
+                message = `BLACKJACK! You Win!`;
+                className += ' bg-yellow-400 text-gray-900';
+            } else if (dealerScore > playerScore) {
+                message = `Dealer Wins! (${dealerScore} to ${playerScore})`;
+                className += ' bg-red-600';
+            } else if (playerScore > dealerScore) {
+                message = `You Win! (${playerScore} to ${dealerScore})`;
+                className += ' bg-green-600';
+            } else {
+                message = `Push! (${playerScore}). It's a tie.`;
+                className += ' bg-blue-600';
+            }
+
+            statusMessageEl.textContent = message;
+            statusMessageEl.className = className;
+            isGameActive = false;
+            updateUI(true); // Final UI update showing all cards
+        }
+
+        // Initialize the game when the window loads
+        window.onload = function() {
+            // Attach event listeners
+            document.getElementById('hit-btn').addEventListener('click', hit);
+            document.getElementById('stand-btn').addEventListener('click', stand);
+            document.getElementById('new-game-btn').addEventListener('click', initGame);
+
+            // Start the first game
+            initGame();
+        };
+    </script>
+</head>
+<body>
+
+    <div class="max-w-4xl w-full bg-gray-800 p-6 sm:p-10 rounded-xl shadow-2xl border-b-8 border-yellow-500">
+        
+        <h1 class="title text-3xl sm:text-4xl font-extrabold text-white text-center mb-6">
+            ♠️ Blackjack Trainer
+        </h1>
+
+        <!-- Dealer Area -->
+        <div class="mb-8 p-4 bg-gray-900/70 rounded-lg border-2 border-gray-700">
+            <h2 class="text-2xl font-bold text-gray-300 mb-3 flex justify-between items-center">
+                Dealer's Hand
+                <span id="dealer-score" class="text-xl font-mono text-yellow-500">Score: 0</span>
+            </h2>
+            <div id="dealer-cards" class="card-container">
+                <!-- Dealer's cards will be rendered here -->
+            </div>
+        </div>
+
+        <!-- Player Area -->
+        <div class="mb-8 p-4 bg-gray-900/70 rounded-lg border-2 border-gray-700">
+            <h2 class="text-2xl font-bold text-white mb-3 flex justify-between items-center">
+                Your Hand
+                <span id="player-score" class="text-xl font-mono text-yellow-500">Score: 0</span>
+            </h2>
+            <div id="player-cards" class="card-container">
+                <!-- Player's cards will be rendered here -->
+            </div>
+        </div>
+        
+        <!-- Status Message -->
+        <div class="text-center mb-6 min-h-[50px]">
+            <p id="status-message" class="text-white text-xl font-semibold">Game started! Hit or Stand?</p>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="flex flex-col sm:flex-row justify-center gap-4">
+            
+            <button id="hit-btn" 
+                class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-200 enabled:hover:scale-[1.03] disabled:opacity-50"
+                disabled>
+                HIT (Get Card)
+            </button>
+
+            <button id="stand-btn" 
+                class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition duration-200 enabled:hover:scale-[1.03] disabled:opacity-50"
+                disabled>
+                STAND (End Turn)
+            </button>
+            
+            <button id="new-game-btn" 
+                class="bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold py-3 px-8 rounded-full shadow-lg transition duration-200 enabled:hover:scale-[1.03] disabled:opacity-50"
+                disabled>
+                NEW GAME
+            </button>
+        </div>
+
+    </div>
+
+</body>
+</html>
